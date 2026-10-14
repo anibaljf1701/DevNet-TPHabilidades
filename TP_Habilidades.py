@@ -1,130 +1,188 @@
+import argparse
+import os
+import sys
+
 import requests
-import json
-#import urllib.parse
-from prettytable import PrettyTable
-from requests.api import request
-
-main_url_api = 'https://api.meraki.com/api/v1/'
-headers = {
-    "X-Cisco-Meraki-Api-Key": "REDACTED"
-}
-
-###Paso 1: Obtener los id de las organizaciones###
-#Armo la url
-url_org = main_url_api + 'organizations'
-
-#Genero la consulta para conseguir los IDs de las organizaciones
-response_org = requests.request('GET', url_org, headers = headers, verify= True)
-response_org_json = response_org.json()
-
-#Armo la tabla de organizaciones con la libreria prettytable
-table_org = response_org_json
-table = PrettyTable(["ID","NAME"])
-for table_org in table_org:
-    table.add_row([table_org["id"],table_org["name"]])
-#Imprimo la tabla
-print('TABLA DE ORGANIZACIONES: ')
-print(table)
-print("\n")
 
 
-###Paso 2: Obtener las redes de una organización a partir de la elección de un id del servicio anterior###
-#Obtengo el ID de una organizacion
-id_org = str(response_org_json[0]['id'])
-
-#Armo la url
-url_net = url_org + '/' + id_org + '/networks'
-
-#Genero la consulta para conseguir las redes de la organizacion obtenida
-response_net = requests.request('GET', url_net, headers = headers, verify= True)
-response_net_json = response_net.json()
-
-#Armo la tabla de redes de una organizacion con la libreria prettytable
-table_net = response_net_json
-table = PrettyTable(["ID","NAME"])
-for table_net in table_net:
-    table.add_row([table_net["id"],table_net["name"]])
-#Imprimo la tabla
-print('TABLA DE REDES DE UNA ORGANIZACION: ')
-print(table)
-print("\n")
+API_BASE_URL = "https://api.meraki.com/api/v1"
+TIMEOUT_SECONDS = 30
 
 
-###Paso 3: Obtener los dispositivos de la red pasándole como parámetro el networkid###
-#Obtengo el networkID
-id_net = str(response_net_json[0]['id'])
-
-#Armo la url
-url_devices = main_url_api + 'networks/' + id_net + '/devices'
-
-#Genero la consulta para conseguir los dispositivos de una red obtenida
-response_devices = requests.request('GET', url_devices, headers = headers, verify= True)
-response_devices_json = response_devices.json()
-
-#Armo la tabla de dispositivos de una red con la libreria prettytable
-table_devices = response_devices_json
-table = PrettyTable(["NAME" ,"MODEL", "SERIAL"])
-for table_devices in table_devices:
-    table.add_row([table_devices["name"],table_devices["model"], table_devices["serial"]])
-#Imprimo la tabla
-print('TABLA DE LOS DISPOSITIVOS DE UNA RED: ')
-print(table)
-print("\n")
+class ItemNotFoundError(Exception):
+    pass
 
 
-
-###Paso 4: Obtener datos de la  red con el networkid###
-#Armo la url
-url_net_info = main_url_api + 'networks/' + id_net
-
-#Genero la consulta para obtener los datos de una red
-response_net_info = requests.request('GET', url_net_info, headers = headers, verify = True)
-response_net_info_json = response_net_info.json()
-
-print('INFORMACION DE LA RED: ')
-print("NAME: " + response_net_info_json["name"])
-print("ID: " + response_net_info_json["id"])
-print("ORGANIZATION ID: " + response_net_info_json["organizationId"])
-print("TIME ZONE: " + response_net_info_json["timeZone"])
-print("\n")
+def get_json(session, path):
+    response = session.get(
+        f"{API_BASE_URL}/{path.lstrip('/')}", timeout=TIMEOUT_SECONDS
+    )
+    response.raise_for_status()
+    return response.json()
 
 
+def print_table(title, columns, rows):
+    values = [[str(value) for value in row] for row in rows]
+    widths = [
+        max([len(str(column)), *(len(row[index]) for row in values)])
+        for index, column in enumerate(columns)
+    ]
+    separator = "+-" + "-+-".join("-" * width for width in widths) + "-+"
+    header = "| " + " | ".join(
+        str(column).ljust(width) for column, width in zip(columns, widths)
+    ) + " |"
+    print(f"{title}:")
+    if values:
+        print(separator)
+        print(header)
+        print(separator)
+        for row in values:
+            print("| " + " | ".join(value.ljust(width) for value, width in zip(row, widths)) + " |")
+        print(separator)
+    else:
+        print("No se encontraron resultados.")
+    print()
 
-###Paso 5: Obtener infomación de un dispositivo con el serial id###
-#Obtengo el serial
-serial_device = str(response_devices_json[0]['serial'])
 
-#Armo la url
-url_devices_info =  main_url_api + 'networks/' + id_net + '/devices/' + serial_device
+def choose_item(items, label, selected_id=None):
+    if selected_id is not None:
+        for item in items:
+            if item.get("id") == selected_id:
+                return item
+        raise ItemNotFoundError(f"No se encontró {label} con ID {selected_id}.")
 
-#Genero la consulta para obtener los datos de un dispositivo
-response_device_info = requests.request('GET', url_devices_info, headers = headers, verify = True)
-response_device_info_json = response_device_info.json()
+    if not items:
+        return None
 
-#print(response_device_info_json)
-print('INFORMACION DE UN DISPOSITIVO DE LA RED: ')
-print("NAME: " + response_device_info_json["name"])
-print("SERIAL: " + response_device_info_json["serial"])
-print("MAC: " + response_device_info_json["mac"])
-print("MODEL: " + response_device_info_json["model"])
-print("FIRMWARE: " + response_device_info_json["firmware"])
-print("\n")
+    for index, item in enumerate(items, start=1):
+        print(f"{index}. {item.get('name', '(sin nombre)')} [{item.get('id', '')}]")
+
+    while True:
+        selection = input(f"Seleccione {label} (1-{len(items)}): ").strip()
+        try:
+            selected_index = int(selection) - 1
+        except ValueError:
+            selected_index = -1
+        if 0 <= selected_index < len(items):
+            return items[selected_index]
+        print("Selección no válida. Intente nuevamente.")
 
 
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Consulta inventario de Cisco Meraki Dashboard."
+    )
+    parser.add_argument(
+        "--organization-id",
+        help="ID de organización; si se omite, se elige de forma interactiva.",
+    )
+    parser.add_argument(
+        "--network-id",
+        help="ID de red; si se omite, se elige de forma interactiva.",
+    )
+    return parser.parse_args(argv)
 
-###Paso 6: Obtener información del SSID para el network ID###
-#Armo la URL
-url_ssid_info =  main_url_api + 'networks/' + id_net + '/wireless/ssids'
 
-#Genero la consulta del SSID para un determinado network ID
-response_ssid_info = requests.request('GET', url_ssid_info, headers = headers, verify = True)
-response_ssid_info_json = response_ssid_info.json()
+def main(argv=None):
+    args = parse_args(argv)
+    api_key = os.environ.get("MERAKI_DASHBOARD_API_KEY")
+    if not api_key:
+        print(
+            "Falta la variable de entorno MERAKI_DASHBOARD_API_KEY.",
+            file=sys.stderr,
+        )
+        return 1
 
-#Armo la tabla de la inforamcion de una red con la libreria prettytable
-table_ssid_info = response_ssid_info_json
-table = PrettyTable(["NUMBER","NAME","STATUS"])
-for table_ssid_info in table_ssid_info:
-    table.add_row([table_ssid_info["number"],table_ssid_info["name"],table_ssid_info["enabled"]])
-#Imprimo la tabla
-print('INFORMACION DE LOS SSID PARA UN NETWORK_ID: ')
-print(table)
+    with requests.Session() as session:
+        session.headers.update({"X-Cisco-Meraki-API-Key": api_key})
+
+        organizations = get_json(session, "organizations")
+        print_table(
+            "Organizaciones",
+            ["ID", "Nombre"],
+            [[item.get("id", ""), item.get("name", "")] for item in organizations],
+        )
+        organization = choose_item(
+            organizations, "una organización", args.organization_id
+        )
+        if organization is None:
+            print("La cuenta no tiene organizaciones disponibles.")
+            return 0
+
+        networks = get_json(session, f"organizations/{organization['id']}/networks")
+        print_table(
+            "Redes de la organización",
+            ["ID", "Nombre"],
+            [[item.get("id", ""), item.get("name", "")] for item in networks],
+        )
+        network = choose_item(networks, "una red", args.network_id)
+        if network is None:
+            print("La organización no tiene redes disponibles.")
+            return 0
+
+        network_id = network["id"]
+        devices = get_json(session, f"networks/{network_id}/devices")
+        print_table(
+            "Dispositivos de la red",
+            ["Nombre", "Modelo", "Serial"],
+            [
+                [item.get("name", ""), item.get("model", ""), item.get("serial", "")]
+                for item in devices
+            ],
+        )
+
+        network_info = get_json(session, f"networks/{network_id}")
+        print("Información de la red:")
+        for label, field in (
+            ("Nombre", "name"),
+            ("ID", "id"),
+            ("ID de organización", "organizationId"),
+            ("Zona horaria", "timeZone"),
+        ):
+            print(f"{label}: {network_info.get(field, 'No disponible')}")
+        print()
+
+        device = choose_item(devices, "un dispositivo")
+        if device is not None:
+            device_info = get_json(
+                session, f"networks/{network_id}/devices/{device['serial']}"
+            )
+            print("Información del dispositivo:")
+            for label, field in (
+                ("Nombre", "name"),
+                ("Serial", "serial"),
+                ("MAC", "mac"),
+                ("Modelo", "model"),
+                ("Firmware", "firmware"),
+            ):
+                print(f"{label}: {device_info.get(field, 'No disponible')}")
+            print()
+
+        ssids = get_json(session, f"networks/{network_id}/wireless/ssids")
+        print_table(
+            "SSID de la red",
+            ["Número", "Nombre", "Habilitado"],
+            [
+                [item.get("number", ""), item.get("name", ""), item.get("enabled", "")]
+                for item in ssids
+            ],
+        )
+
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except requests.RequestException as error:
+        print(f"Error al consultar la API de Meraki: {error}", file=sys.stderr)
+        sys.exit(1)
+    except ItemNotFoundError as error:
+        print(error, file=sys.stderr)
+        sys.exit(2)
+    except ValueError as error:
+        print(f"La API devolvió una respuesta JSON no válida: {error}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nOperación cancelada.", file=sys.stderr)
+        sys.exit(130)
