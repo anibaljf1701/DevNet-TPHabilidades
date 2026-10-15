@@ -30,12 +30,6 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-En Windows PowerShell, la activación es:
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
 Instala la dependencia:
 
 ```bash
@@ -46,19 +40,11 @@ python -m pip install -r requirements.txt
 
 Configura `MERAKI_DASHBOARD_API_KEY` en la terminal desde la que ejecutarás el programa.
 
-Linux o macOS:
+Linux:
 
 ```bash
 export MERAKI_DASHBOARD_API_KEY="tu_clave_de_api"
 ```
-
-Windows PowerShell:
-
-```powershell
-$env:MERAKI_DASHBOARD_API_KEY = "tu_clave_de_api"
-```
-
-No guardes una clave real en archivos versionados, capturas, logs o ejemplos. Si una clave se publicó o se incluyó en un commit, revócala en Meraki Dashboard y genera otra. Borrarla del archivo actual no la elimina del historial Git.
 
 ## Ejecución
 
